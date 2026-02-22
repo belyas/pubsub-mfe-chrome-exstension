@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "PubSub-MFE DevTools",
+  "description": "DevTools extension for debugging pubsub-mfe message traffic, subscriptions, diagnostics, and performance.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "114",
+  "devtools_page": "devtools.html",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected-script.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  }
+}
