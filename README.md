@@ -6,7 +6,7 @@
 
 # PubSub MFE DevTools Chrome Extension
 
-Chrome DevTools extension for debugging applications using `@belyas/pubsub-mfe`.
+Chrome DevTools extension for debugging applications using [`@belyas/pubsub-mfe`](https://github.com/belyas/pubsub-mfe).
 
 ## Features
 
