@@ -23,7 +23,9 @@ type DevToolsEvent = {
     | "SUBSCRIPTION_REMOVED"
     | "DIAGNOSTIC_EVENT"
     | "BUS_DISPOSED"
-    | "STATS_UPDATE";
+    | "STATS_UPDATE"
+    | "ADAPTER_ATTACHED"
+    | "ADAPTER_DETACHED";
   busId?: string;
   timestamp: number;
   [key: string]: unknown;
@@ -291,6 +293,16 @@ function handleBusDevToolsEvent(detail: UnknownRecord): void {
       timestamp: typeof detail.timestamp === "number" ? detail.timestamp : Date.now(),
       pattern: detail.pattern,
       handlerCount: detail.handlerCount,
+    });
+    return;
+  }
+
+  if (type === "ADAPTER_ATTACHED" || type === "ADAPTER_DETACHED") {
+    queueEvent({
+      type,
+      busId: typeof detail.busId === "string" ? detail.busId : undefined,
+      timestamp: typeof detail.timestamp === "number" ? detail.timestamp : Date.now(),
+      adapterType: detail.adapterType,
     });
   }
 }

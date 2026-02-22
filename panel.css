@@ -310,7 +310,7 @@ select:focus-visible {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 10px;
 }
@@ -339,10 +339,25 @@ select:focus-visible {
 
 #performance-chart {
   width: 100%;
-  min-height: 220px;
-  border: 1px dashed var(--border-color);
+  height: 180px;
+  display: block;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+
+.chart-container {
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-secondary);
+  padding: 10px;
+}
+
+.chart-title {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.25px;
 }
 
 .error-list {

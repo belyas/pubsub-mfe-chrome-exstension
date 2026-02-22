@@ -109,7 +109,7 @@ function connectToBackground(tabId: number): RuntimePort {
   return port;
 }
 
-chrome.devtools.panels.create("PubSub", null, "panel.html", (panel) => {
+chrome.devtools.panels.create("PubSub MFE", null, "panel.html", (panel) => {
   const tabId = chrome.devtools.inspectedWindow.tabId;
   panelPort = connectToBackground(tabId);
 

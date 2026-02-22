@@ -78,6 +78,14 @@
                 <span id="metric-latency">-</span>
               </div>
               <div class="metric-card">
+                <h4>P95 Latency</h4>
+                <span id="metric-p95">-</span>
+              </div>
+              <div class="metric-card">
+                <h4>P99 Latency</h4>
+                <span id="metric-p99">-</span>
+              </div>
+              <div class="metric-card">
                 <h4>Throughput</h4>
                 <span id="metric-throughput">-</span>
               </div>
@@ -86,7 +94,10 @@
                 <span id="metric-total">-</span>
               </div>
             </div>
-            <canvas id="performance-chart"></canvas>
+            <div class="chart-container">
+              <h4 class="chart-title">Throughput (msg/s) — last 60s</h4>
+              <canvas id="performance-chart"></canvas>
+            </div>
           </div>
 
           <div id="tab-errors" class="tab-content">

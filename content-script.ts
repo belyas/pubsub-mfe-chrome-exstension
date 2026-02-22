@@ -19,6 +19,8 @@ const ALLOWED_EVENT_TYPES = new Set([
   "DIAGNOSTIC",
   "BUS_DISPOSED",
   "STATS_UPDATE",
+  "ADAPTER_ATTACHED",
+  "ADAPTER_DETACHED",
 ]);
 
 type DevToolsEvent = {

@@ -7,7 +7,9 @@ type DevToolsEventType =
   | "SUBSCRIPTION_REMOVED"
   | "DIAGNOSTIC_EVENT"
   | "BUS_DISPOSED"
-  | "STATS_UPDATE";
+  | "STATS_UPDATE"
+  | "ADAPTER_ATTACHED"
+  | "ADAPTER_DETACHED";
 
 interface DevToolsEvent {
   type: DevToolsEventType;
@@ -170,6 +172,12 @@ class MetricsTracker {
   private totalMessageCount = 0;
   private readonly throughputWindowMs = 10_000;
 
+  // Throughput history for sparkline: stores [timestamp, value] pairs.
+  // Sampled once per second, keeps the last 60 data points (1 minute).
+  readonly throughputHistory: Array<{ ts: number; value: number }> = [];
+  private readonly maxHistoryPoints = 60;
+  private lastSampleTs = 0;
+
   recordMessage(): void {
     this.totalMessageCount++;
     this.timestamps.push(Date.now());
@@ -196,16 +204,27 @@ class MetricsTracker {
   }
 
   getMetrics(): PerformanceMetrics {
-    this.pruneTimestamps(Date.now());
+    const now = Date.now();
+    this.pruneTimestamps(now);
 
     const n = this.latencies.length;
     const windowCount = this.timestamps.length - this.timestampsStart;
+    const throughput = windowCount / (this.throughputWindowMs / 1000);
+
+    // Sample throughput once per second for sparkline history.
+    if (now - this.lastSampleTs >= 1000) {
+      this.lastSampleTs = now;
+      this.throughputHistory.push({ ts: now, value: throughput });
+      if (this.throughputHistory.length > this.maxHistoryPoints) {
+        this.throughputHistory.shift();
+      }
+    }
 
     return {
       avgLatency: n > 0 ? this.latencySum / n : 0,
       p95Latency: n > 0 ? this.latencies[Math.min(n - 1, Math.floor(n * 0.95))] : 0,
       p99Latency: n > 0 ? this.latencies[Math.min(n - 1, Math.floor(n * 0.99))] : 0,
-      throughput: windowCount / (this.throughputWindowMs / 1000),
+      throughput,
       totalMessages: this.totalMessageCount,
     };
   }
@@ -308,6 +327,12 @@ function handleDevToolsEvent(raw: unknown): void {
     case "STATS_UPDATE":
       handleStatsUpdate(event as DevToolsEvent);
       break;
+    case "ADAPTER_ATTACHED":
+      handleAdapterAttached(event as DevToolsEvent);
+      break;
+    case "ADAPTER_DETACHED":
+      handleAdapterDetached(event as DevToolsEvent);
+      break;
     default:
       return;
   }
@@ -348,7 +373,11 @@ function handleMessagePublished(event: DevToolsEvent): void {
     ? ((message.meta as Record<string, unknown>).source as string | undefined)
     : undefined;
 
-  const adapter = inferAdapterType(source);
+  const meta = typeof message.meta === "object" && message.meta
+    ? (message.meta as Record<string, unknown>)
+    : undefined;
+
+  const adapter = inferAdapterType(source, meta);
   markAdapterActive(bus, adapter);
 
   const entry: BusMessageEntry = {
@@ -447,6 +476,33 @@ function handleStatsUpdate(event: DevToolsEvent): void {
   bus.stats = stats;
 }
 
+function handleAdapterAttached(event: DevToolsEvent): void {
+  const adapterType = event.adapterType as AdapterType | undefined;
+  if (!adapterType) {
+    return;
+  }
+
+  const bus = getOrCreateBusState(event.busId);
+  markAdapterActive(bus, adapterType);
+}
+
+function handleAdapterDetached(event: DevToolsEvent): void {
+  const adapterType = event.adapterType as AdapterType | undefined;
+  if (!adapterType) {
+    return;
+  }
+
+  const bus = state.buses.get(event.busId);
+  if (!bus) {
+    return;
+  }
+
+  const existing = bus.adapters.find((entry) => entry.type === adapterType);
+  if (existing) {
+    existing.status = "inactive";
+  }
+}
+
 function getOrCreateBusState(busId: string, metadata?: BusMetadata): BusState {
   const existing = state.buses.get(busId);
   if (existing) {
@@ -495,17 +551,23 @@ function createFallbackStats(busId: string, app: string): BusStats {
   };
 }
 
-function inferAdapterType(source?: string): AdapterType {
+function inferAdapterType(source?: string, meta?: Record<string, unknown>): AdapterType {
+  // Check cross-tab marker set by CrossTabAdapter
+  if (meta && meta._crossTab === true) {
+    return "cross-tab";
+  }
+
   if (!source) {
     return "local";
   }
 
   const lower = source.toLowerCase();
+  // Iframe adapter sets source to "iframe:<clientId>"
+  if (lower.startsWith("iframe:") || lower.includes("iframe")) {
+    return "iframe";
+  }
   if (lower.includes("cross-tab") || lower.includes("broadcast") || lower.includes("storage")) {
     return "cross-tab";
-  }
-  if (lower.includes("iframe")) {
-    return "iframe";
   }
   if (lower.includes("history")) {
     return "history";
@@ -689,12 +751,178 @@ function renderTopicTree(): void {
   container.innerHTML = tree.map((node) => renderTreeNodeHtml(node, 0)).join("");
 }
 
+/**
+ * Render a throughput-over-time sparkline on the performance canvas.
+ * Pure Canvas2D — zero dependencies.
+ */
+function renderSparklineChart(history: Array<{ ts: number; value: number }>): void {
+  const canvas = document.getElementById("performance-chart") as HTMLCanvasElement | null;
+  if (!canvas) {
+    return;
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width * dpr;
+  const h = rect.height * dpr;
+
+  // Resize backing store to match CSS size × DPR for crisp rendering.
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  const cssW = rect.width;
+  const cssH = rect.height;
+  const pad = { top: 10, right: 12, bottom: 24, left: 40 };
+  const plotW = cssW - pad.left - pad.right;
+  const plotH = cssH - pad.top - pad.bottom;
+
+  // Resolve CSS custom properties for theming.
+  const style = getComputedStyle(canvas);
+  const textColor = style.getPropertyValue("--text-secondary").trim() || "#9aa0a6";
+  const gridColor = style.getPropertyValue("--border-color").trim() || "#3c3c3c";
+  const accentColor = style.getPropertyValue("--accent-color").trim() || "#4fc3f7";
+
+  // Empty state.
+  if (history.length < 2) {
+    ctx.fillStyle = textColor;
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Waiting for data\u2026", cssW / 2, cssH / 2);
+    ctx.restore();
+    return;
+  }
+
+  const values = history.map((p) => p.value);
+  const maxVal = Math.max(...values, 1); // at least 1 to avoid division by zero
+  const niceMax = ceilToNice(maxVal);
+
+  // --- Grid lines & Y-axis labels ---
+  const gridSteps = 4;
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 0.5;
+  ctx.fillStyle = textColor;
+  ctx.font = "10px system-ui, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+
+  for (let i = 0; i <= gridSteps; i++) {
+    const ratio = i / gridSteps;
+    const y = pad.top + plotH - ratio * plotH;
+    const label = (niceMax * ratio).toFixed(niceMax >= 10 ? 0 : 1);
+
+    // Grid line.
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+
+    // Label.
+    ctx.fillText(label, pad.left - 6, y);
+  }
+
+  // --- X-axis time labels ---
+  const firstTs = history[0].ts;
+  const lastTs = history[history.length - 1].ts;
+  const spanSec = Math.max((lastTs - firstTs) / 1000, 1);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const xLabelCount = Math.min(6, history.length);
+  for (let i = 0; i < xLabelCount; i++) {
+    const idx = Math.round((i / (xLabelCount - 1)) * (history.length - 1));
+    const x = pad.left + (idx / (history.length - 1)) * plotW;
+    const secAgo = Math.round((lastTs - history[idx].ts) / 1000);
+    ctx.fillText(secAgo === 0 ? "now" : `-${secAgo}s`, x, pad.top + plotH + 6);
+  }
+
+  // --- Area fill + line ---
+  ctx.beginPath();
+  for (let i = 0; i < history.length; i++) {
+    const x = pad.left + (i / (history.length - 1)) * plotW;
+    const y = pad.top + plotH - (values[i] / niceMax) * plotH;
+
+    if (i === 0) {
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+
+  // Stroke the line.
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  // Fill area under the line.
+  ctx.lineTo(pad.left + plotW, pad.top + plotH);
+  ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.closePath();
+  ctx.fillStyle = accentColor.replace(")", ", 0.12)").replace("rgb(", "rgba(");
+  // Fallback for hex colors.
+  if (!ctx.fillStyle.includes("rgba")) {
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = accentColor;
+  }
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // --- Latest value dot ---
+  const lastX = pad.left + plotW;
+  const lastY = pad.top + plotH - (values[values.length - 1] / niceMax) * plotH;
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = accentColor;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/** Round up to a "nice" axis maximum (1, 2, 5, 10, 20, 50, …). */
+function ceilToNice(value: number): number {
+  if (value <= 0) {
+    return 1;
+  }
+
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  const normalized = value / magnitude;
+
+  if (normalized <= 1) {
+    return magnitude;
+  }
+  if (normalized <= 2) {
+    return 2 * magnitude;
+  }
+  if (normalized <= 5) {
+    return 5 * magnitude;
+  }
+
+  return 10 * magnitude;
+}
+
 function renderPerformanceMetrics(): void {
-  const metrics = state.selectedBusId ? state.buses.get(state.selectedBusId)?.metricsTracker.getMetrics() : undefined;
+  const bus = state.selectedBusId ? state.buses.get(state.selectedBusId) : undefined;
+  const metrics = bus?.metricsTracker.getMetrics();
 
   setText("metric-latency", metrics ? `${metrics.avgLatency.toFixed(2)} ms` : "-");
+  setText("metric-p95", metrics ? `${metrics.p95Latency.toFixed(2)} ms` : "-");
+  setText("metric-p99", metrics ? `${metrics.p99Latency.toFixed(2)} ms` : "-");
   setText("metric-throughput", metrics ? `${metrics.throughput.toFixed(1)} msg/s` : "-");
   setText("metric-total", metrics ? String(metrics.totalMessages) : "-");
+
+  renderSparklineChart(bus?.metricsTracker.throughputHistory ?? []);
 }
 
 function renderErrors(): void {
