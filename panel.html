@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PubSub DevTools</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div class="logo">PubSub DevTools</div>
+        <label for="bus-selector" class="sr-only">Bus selector</label>
+        <select id="bus-selector" class="bus-selector" aria-label="Bus selector">
+          <option value="">Select Bus...</option>
+        </select>
+        <div class="controls" role="toolbar" aria-label="Panel controls">
+          <button id="btn-pause" title="Pause" type="button" aria-label="Pause">⏸</button>
+          <button id="btn-clear" title="Clear" type="button" aria-label="Clear">🗑️</button>
+          <button id="btn-export" title="Export" type="button" aria-label="Export">💾</button>
+        </div>
+      </header>
+
+      <div class="main-layout">
+        <aside class="sidebar" aria-label="Sidebar">
+          <section class="filter-section" aria-labelledby="filters-title">
+            <h3 id="filters-title">Filters</h3>
+            <label for="topic-filter" class="sr-only">Topic filter</label>
+            <input type="text" id="topic-filter" placeholder="Topic pattern..." />
+
+            <label for="source-filter" class="sr-only">Source filter</label>
+            <input type="text" id="source-filter" placeholder="Source..." />
+
+            <div class="adapter-filters" role="group" aria-label="Adapter filters">
+              <label><input type="checkbox" value="cross-tab" checked /> Cross-Tab</label>
+              <label><input type="checkbox" value="iframe" checked /> Iframe</label>
+              <label><input type="checkbox" value="history" checked /> History</label>
+            </div>
+          </section>
+
+          <section class="topic-tree-section" aria-labelledby="subscriptions-title">
+            <h3 id="subscriptions-title">Subscriptions</h3>
+            <div id="topic-tree" class="topic-tree"></div>
+          </section>
+        </aside>
+
+        <main class="main-content" aria-label="Main content">
+          <nav class="tabs" aria-label="DevTools sections">
+            <button class="tab active" data-tab="messages" type="button">Messages</button>
+            <button class="tab" data-tab="performance" type="button">Performance</button>
+            <button class="tab" data-tab="errors" type="button">Errors</button>
+            <button class="tab" data-tab="adapters" type="button">Adapters</button>
+            <button class="tab" data-tab="stats" type="button">Stats</button>
+          </nav>
+
+          <div id="tab-messages" class="tab-content active">
+            <div id="message-feed" class="message-feed">
+              <table class="message-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Topic</th>
+                    <th>Source</th>
+                    <th>Adapter</th>
+                    <th>Payload</th>
+                  </tr>
+                </thead>
+                <tbody id="message-list"></tbody>
+              </table>
+              <div id="message-spacer" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div id="tab-performance" class="tab-content">
+            <div class="metrics">
+              <div class="metric-card">
+                <h4>Avg Latency</h4>
+                <span id="metric-latency">-</span>
+              </div>
+              <div class="metric-card">
+                <h4>Throughput</h4>
+                <span id="metric-throughput">-</span>
+              </div>
+              <div class="metric-card">
+                <h4>Total Messages</h4>
+                <span id="metric-total">-</span>
+              </div>
+            </div>
+            <canvas id="performance-chart"></canvas>
+          </div>
+
+          <div id="tab-errors" class="tab-content">
+            <div id="error-list" class="error-list"></div>
+          </div>
+
+          <div id="tab-adapters" class="tab-content">
+            <div id="adapter-status" class="adapter-status"></div>
+          </div>
+
+          <div id="tab-stats" class="tab-content">
+            <div id="bus-stats" class="bus-stats"></div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
